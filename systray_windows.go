@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"sort"
 	"sync"
-	"syscall"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -619,7 +618,10 @@ func (t *winTray) addSeparatorMenuItem(menuItemId, parentId uint32) error {
 func (t *winTray) hideMenuItem(menuItemId, parentId uint32) error {
 	// https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-removemenu
 	const MF_BYCOMMAND = 0x00000000
-	const ERROR_SUCCESS syscall.Errno = 0
+
+	if !t.delFromVisibleItems(parentId, menuItemId) {
+		return nil
+	}
 
 	t.muMenus.RLock()
 	menu := uintptr(t.menus[parentId])
@@ -629,10 +631,9 @@ func (t *winTray) hideMenuItem(menuItemId, parentId uint32) error {
 		uintptr(menuItemId),
 		MF_BYCOMMAND,
 	)
-	if res == 0 && err.(syscall.Errno) != ERROR_SUCCESS {
+	if res == 0 {
 		return err
 	}
-	t.delFromVisibleItems(parentId, menuItemId)
 
 	return nil
 }
@@ -665,16 +666,17 @@ func (t *winTray) showMenu() error {
 	return nil
 }
 
-func (t *winTray) delFromVisibleItems(parent, val uint32) {
+func (t *winTray) delFromVisibleItems(parent, val uint32) bool {
 	t.muVisibleItems.Lock()
 	defer t.muVisibleItems.Unlock()
 	visibleItems := t.visibleItems[parent]
 	for i, itemval := range visibleItems {
 		if val == itemval {
 			t.visibleItems[parent] = append(visibleItems[:i], visibleItems[i+1:]...)
-			break
+			return true
 		}
 	}
+	return false
 }
 
 func (t *winTray) addToVisibleItems(parent, val uint32) {
